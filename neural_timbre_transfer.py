@@ -127,7 +127,7 @@ def check_input_arg(arg):
             input_path = arg
             return input_path
         else: 
-            raise WavError("You must supply a 16- or 24-bit int wav")
+            raise WavError("You must supply 16- or 24-bit int wavs")
     except WavError:
         raise
     except:
@@ -136,19 +136,87 @@ def check_input_arg(arg):
         sys.exit(1)
 
 
-def load_wav():
-    pass
+def load_wav(wav_filepath):
+    """Load wav data into np array and also return important wav parameters"""
+    wv = wavio.read(wav_filepath)
+    wav_data = wv.data 
+    framerate = wv.rate
+    samplewidth = wv.sampwidth                                   
+    return  wav_data, framerate, samplewidth
 
 
-def compare_wavs():
-    pass
+def compare_wavs(c_wv, c_rt, c_wd, s_wv, s_rt, s_wd,):
+    """ 
+        Ensure that the input wavs have the same bit-depth and sample rate.
+        If they do not, exit in error. Also check that number of channels
+        are comparable and that there are no more than two. This script is
+        not going to support surround sound audio at this time.
+
+        NOTE: I know the sample rates must match because that ensures that
+        the wavs have the same Nyquist frequency and that the bandwidths are
+        the same. However, I'm not yet sure that the wavs need to have the same
+        bitdepth. I'm going to implement this constraint anyway; but I could
+        also probably just normalize the sample amplitudes. I could probably 
+        implement a samplerate conversion too. But that is a TODO for another day.
+        
+        If the style wav is longer than the content wav, truncate the style
+        wav to be the same length as the content wav. If the style wav is 
+        shorter than the content wav, exit in error. Looping the style wav 
+        to match the length of content wav might add an unwanted audible 
+        artifact at the looping point.
+    """
+
+    print("Comparing wav parameters")
+    print("-"*80)
+    print("Content Sample Rate: " + str(c_rt))
+    print("Style Sample Rate:   " + str(s_rt))
+    print("-"*80)
+    print("Content Sample Width: " + str(c_wd))
+    print("Style Sample Width:   " + str(s_wd))
+    print("-"*80)
+    print("Content Frames: " + str(c_wv.shape[0]))
+    print("Style Frames:   " + str(s_wv.shape[0]))
+    print("-"*80)
+    
+    if c_rt != s_rt:
+        raise WavError("Sample rates of input wavs must match")
+
+    if c_wd != s_wd:
+        raise WavError("Sample bit-depths of input wavs must match")
+
+    # If the style wav is shorter than the content wav, exit in error
+    if s_wv.shape[0] < c_wv.shape[0]:
+        raise WavError("The style wav must be as long or longer than the content wav")
+
+    # If the style wav is longer, truncate it to match the content length
+    elif s_wv.shape[0] > c_wv.shape[0]:
+        print("Truncating style wav to match content wav length")
+        s_wv = np.copy(s_wv[:c_wv.shape[0],:])
+
+    # TODO: Check that the number of channels in the style wav matches the
+    # number of channels in the content wav.
+
+    return s_wv
 
 
 def main():
     # Run the process on the GPU if that's a viable option
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
-    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+
+    # Get input wavs and output directory from commandline
+    content_path, style_path, out_dir = process_options() 
+
+    # Load the input wav files
+    content_wav, content_frm_rate, content_smp_width = load_wav(content_path)
+    style_wav, style_frm_rate, style_smp_width = load_wav(style_path)
+
+    # Make sure that the wavs are mutable, probably only necessary for style wav
+    content_wav.flags.writeable = True
+    style_wav.flags.writeable = True
+
+    # Check that the wav files have the sample parameters
+    style_wav = compare_wavs(content_wav, content_frm_rate, content_smp_width, 
+                             style_wav, style_frm_rate, style_smp_width)
 
 
 # Run the script
