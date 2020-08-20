@@ -21,7 +21,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from PIL import Image
 import matplotlib
 matplotlib.use('agg')
 import matplotlib.pyplot as plt
@@ -140,11 +139,16 @@ def check_input_arg(arg):
 def load_wav():
     pass
 
+
 def compare_wavs():
     pass
 
+
 def main():
-    pass
+    # Run the process on the GPU if that's a viable option
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+    
 
 
 # Run the script
