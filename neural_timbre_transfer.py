@@ -11,8 +11,9 @@
 
 from __future__ import print_function, division
 import os, sys, getopt, traceback, functools, warnings
-import wave, sndhdr, wavio
+import wave, sndhdr, wavio # TODO: Shift to using pysoundfile and librosa
 import numpy as np 
+from scipy import signal # Shift to using librosa?
 from os.path import isdir, isfile, abspath, join, basename, splitext, exists
 import copy 
 
@@ -21,8 +22,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-import matplotlib
-matplotlib.use('agg')
+# import matplotlib
+# matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
 # No real rhyme or reason to this
@@ -135,7 +136,7 @@ def check_input_arg(arg):
         print(os.linesep + 'Unexpected input error.')
         sys.exit(1)
 
-
+@deprecated
 def load_wav(wav_filepath):
     """Load wav data into np array and also return important wav parameters"""
     wv = wavio.read(wav_filepath)
@@ -217,6 +218,25 @@ def main():
     # Check that the wav files have the sample parameters
     style_wav = compare_wavs(content_wav, content_frm_rate, content_smp_width, 
                              style_wav, style_frm_rate, style_smp_width)
+
+    # Define an output wav 
+    output_wav = np.copy(content_wav)
+
+    # Lets work with just the left channel for now
+    content_wav_l = content_wav[:,0]
+    style_wav_l = style_wav[:,0]
+
+    c_f, c_t, c_stft = signal.stft(content_wav_l, fs=content_frm_rate, nperseg=8192)
+
+    print()
+
+    plt.pcolormesh(c_t, c_f, np.abs(c_stft), shading='gouraud')
+    # plt.yscale('log')
+    # plt.ylim(ymax=20000)
+    plt.title('STFT Magnitude')
+    plt.ylabel('Frequency [Hz]')
+    plt.xlabel('Time [sec]')
+    plt.show()
 
 
 # Run the script
