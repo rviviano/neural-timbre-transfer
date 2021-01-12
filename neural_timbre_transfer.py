@@ -9,11 +9,17 @@
 # August 20th, 2020
 # rayviviano@gmail.com
 
+# TODO: Consider adding monophonic and polyphonic pitch detection of the 
+# input wavs, then pitchbend/timestretch the "style" audio wav to match
+# the "content" audio wav.
+
+# TODO: Consider using librosa.beat for tempo dection
+
 from __future__ import print_function, division
 import os, sys, getopt, traceback, functools, warnings
-import wave, sndhdr, wavio # TODO: Shift to using pysoundfile and librosa
+import librosa
 import numpy as np 
-from scipy import signal # Shift to using librosa?
+from scipy import signal # Shift to using only librosa?
 from os.path import isdir, isfile, abspath, join, basename, splitext, exists
 import copy 
 
@@ -57,8 +63,8 @@ def process_options():
     # Define usage
     usage = """
 
-    Usage: python mudpie_sample_generator --in <arg> --out <arg> --pre <arg> 
-                                          --num <arg> -h
+    Usage: python neural_timbre_transfer --content <arg> --style <arg>  
+                                         --out <arg> -h
 
     Mandatory Options:
 
@@ -86,11 +92,11 @@ def process_options():
         # Mandatory arguments
         if opt == "--c" or opt == "--content":
             if (arg is not None) and (isfile(abspath(arg))):
-                content_path = check_input_arg(arg)
+                content_path = arg
 
         if opt == "--s" or opt == "--style":
             if (arg is not None) and (isfile(abspath(arg))):
-                style_path = check_input_arg(arg)
+                style_path = arg
 
         if opt == "--o" or opt == "--out": 
             if arg is not None:
@@ -120,70 +126,23 @@ def process_options():
     return content_path, style_path, out_dir
 
 
-def check_input_arg(arg):
-    """ Check that file supplied on the command line is a 16 or 24 bit wav """
-    try:
-        wv_hdr = sndhdr.what(abspath(arg))
-        if wv_hdr is not None:
-            input_path = arg
-            return input_path
-        else: 
-            raise WavError("You must supply 16- or 24-bit int wavs")
-    except WavError:
-        raise
-    except:
-        traceback.print_exc(file=sys.stdout)
-        print(os.linesep + 'Unexpected input error.')
-        sys.exit(1)
-
-@deprecated
 def load_wav(wav_filepath):
-    """Load wav data into np array and also return important wav parameters"""
-    wv = wavio.read(wav_filepath)
-    wav_data = wv.data 
-    framerate = wv.rate
-    samplewidth = wv.sampwidth                                   
-    return  wav_data, framerate, samplewidth
+    """Load wav data into np array, resample to 44k"""
+    wv, _ = librosa.load(wav_filepath, sr = 44100, mono=False)                                
+    return  wv
 
 
-def compare_wavs(c_wv, c_rt, c_wd, s_wv, s_rt, s_wd,):
-    """ 
-        Ensure that the input wavs have the same bit-depth and sample rate.
-        If they do not, exit in error. Also check that number of channels
-        are comparable and that there are no more than two. This script is
-        not going to support surround sound audio at this time.
-
-        NOTE: I know the sample rates must match because that ensures that
-        the wavs have the same Nyquist frequency and that the bandwidths are
-        the same. However, I'm not yet sure that the wavs need to have the same
-        bitdepth. I'm going to implement this constraint anyway; but I could
-        also probably just normalize the sample amplitudes. I could probably 
-        implement a samplerate conversion too. But that is a TODO for another day.
-        
+def compare_wavs_length(c_wv, s_wv):
+    """         
         If the style wav is longer than the content wav, truncate the style
         wav to be the same length as the content wav. If the style wav is 
         shorter than the content wav, exit in error. Looping the style wav 
         to match the length of content wav might add an unwanted audible 
         artifact at the looping point.
+
+        Inputs: c_wv : "content" wav
+                s_wv : "sytle" wav
     """
-
-    print("Comparing wav parameters")
-    print("-"*80)
-    print("Content Sample Rate: " + str(c_rt))
-    print("Style Sample Rate:   " + str(s_rt))
-    print("-"*80)
-    print("Content Sample Width: " + str(c_wd))
-    print("Style Sample Width:   " + str(s_wd))
-    print("-"*80)
-    print("Content Frames: " + str(c_wv.shape[0]))
-    print("Style Frames:   " + str(s_wv.shape[0]))
-    print("-"*80)
-    
-    if c_rt != s_rt:
-        raise WavError("Sample rates of input wavs must match")
-
-    if c_wd != s_wd:
-        raise WavError("Sample bit-depths of input wavs must match")
 
     # If the style wav is shorter than the content wav, exit in error
     if s_wv.shape[0] < c_wv.shape[0]:
@@ -208,25 +167,24 @@ def main():
     content_path, style_path, out_dir = process_options() 
 
     # Load the input wav files
-    content_wav, content_frm_rate, content_smp_width = load_wav(content_path)
-    style_wav, style_frm_rate, style_smp_width = load_wav(style_path)
+    content_wav = load_wav(content_path)
+    style_wav = load_wav(style_path)
 
     # Make sure that the wavs are mutable, probably only necessary for style wav
     content_wav.flags.writeable = True
     style_wav.flags.writeable = True
 
     # Check that the wav files have the sample parameters
-    style_wav = compare_wavs(content_wav, content_frm_rate, content_smp_width, 
-                             style_wav, style_frm_rate, style_smp_width)
+    style_wav = compare_wavs_length(content_wav, style_wav)
 
     # Define an output wav 
     output_wav = np.copy(content_wav)
 
     # Lets work with just the left channel for now
-    content_wav_l = content_wav[:,0]
-    style_wav_l = style_wav[:,0]
+    content_wav_l = content_wav[0,:]
+    style_wav_l = style_wav[0,:]
 
-    c_f, c_t, c_stft = signal.stft(content_wav_l, fs=content_frm_rate, nperseg=8192)
+    c_f, c_t, c_stft = signal.stft(content_wav_l, fs=44100, nperseg=8192)
 
     print()
 
