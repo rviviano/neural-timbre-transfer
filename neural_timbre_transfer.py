@@ -17,12 +17,10 @@
 
 from __future__ import print_function, division
 import os, sys, getopt, traceback, functools, warnings
-import librosa
+import librosa, librosa.display
 import numpy as np 
-from scipy import signal # Shift to using only librosa?
 from os.path import isdir, isfile, abspath, join, basename, splitext, exists
 import copy 
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -170,32 +168,38 @@ def main():
     content_wav = load_wav(content_path)
     style_wav = load_wav(style_path)
 
-    # Make sure that the wavs are mutable, probably only necessary for style wav
+    # Ensure that the wavs are mutable
     content_wav.flags.writeable = True
     style_wav.flags.writeable = True
 
-    # Check that the wav files have the sample parameters
+    # Check compatibility of wav lengths
     style_wav = compare_wavs_length(content_wav, style_wav)
 
     # Define an output wav 
     output_wav = np.copy(content_wav)
 
-    # Lets work with just the left channel for now
+    # Separate Short-time Fourier Transforms for left and right channels
     content_wav_l = content_wav[0,:]
+    content_wav_r = content_wav[1,:]
     style_wav_l = style_wav[0,:]
+    style_wav_r = style_wav[1,:]
 
-    c_f, c_t, c_stft = signal.stft(content_wav_l, fs=44100, nperseg=8192)
+    # Corresponding spectograms 
+    c_stft_l = librosa.stft(content_wav_l, n_fft=8192)
+    c_stft_r = librosa.stft(content_wav_r, n_fft=8192)
+    s_stft_l = librosa.stft(style_wav_l, n_fft=8192)
+    s_stft_r = librosa.stft(style_wav_r, n_fft=8192)
 
-    print()
+    # print()
 
-    plt.pcolormesh(c_t, c_f, np.abs(c_stft), shading='gouraud')
-    # plt.yscale('log')
-    # plt.ylim(ymax=20000)
-    plt.title('STFT Magnitude')
-    plt.ylabel('Frequency [Hz]')
-    plt.xlabel('Time [sec]')
-    plt.show()
+    # fig, ax = plt.subplots()
+    # img = librosa.display.specshow(librosa.amplitude_to_db(c_stft_l,
+    #                                                     ref=np.max),
+    #                             y_axis='log', x_axis='time', ax=ax)
+    # ax.set_title('Power spectrogram')
+    # fig.colorbar(img, ax=ax, format="%+2.0f dB")
 
+    # plt.show()
 
 # Run the script
 if __name__ == "__main__":
