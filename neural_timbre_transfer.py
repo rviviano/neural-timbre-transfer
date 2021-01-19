@@ -13,7 +13,6 @@
 # input wavs, then pitchbend/timestretch the "style" audio wav to match
 # the "content" audio wav.
 
-# TODO: Consider using librosa.beat for tempo dection
 
 from __future__ import print_function, division
 import os, sys, getopt, traceback, functools, warnings
@@ -37,6 +36,17 @@ __version__ = "0.0.1"
 # Class Definitions
 class WavError(Exception):
     pass
+
+
+class ConvNet(nn.Module):
+    def __init__(self):
+        super(ConvNet, self).__init__()
+        self.conv1 = nn.Conv1d(in_channels=4097, out_channels=4097,
+                               kernel_size=3, stride=1, padding=1)
+
+    
+    def forward(self, x):
+        pass
 
 
 # Decorator definitions
@@ -151,16 +161,19 @@ def compare_wavs_length(c_wv, s_wv):
         print("Truncating style wav to match content wav length")
         s_wv = np.copy(s_wv[:c_wv.shape[0],:])
 
-    # TODO: Check that the number of channels in the style wav matches the
-    # number of channels in the content wav.
-
     return s_wv
 
 
-def main():
-    # Run the process on the GPU if that's a viable option
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
+def plot_spectrogram():
+    fig, ax = plt.subplots()
+    img = librosa.display.specshow(librosa.amplitude_to_db(stft, ref=np.max),
+                                   y_axis='log', x_axis='time', ax=ax)
+    ax.set_title('Spectrogram')
+    fig.colorbar(img, ax=ax, format="%+2.0f dB")
+    plt.show()
 
+
+def main():
     # Get input wavs and output directory from commandline
     content_path, style_path, out_dir = process_options() 
 
@@ -185,21 +198,20 @@ def main():
     style_wav_r = style_wav[1,:]
 
     # Corresponding spectograms 
-    c_stft_l = librosa.stft(content_wav_l, n_fft=8192)
-    c_stft_r = librosa.stft(content_wav_r, n_fft=8192)
-    s_stft_l = librosa.stft(style_wav_l, n_fft=8192)
-    s_stft_r = librosa.stft(style_wav_r, n_fft=8192)
+    c_stft_l = librosa.stft(content_wav_l, n_fft=8192, hop_length=512)
+    c_stft_r = librosa.stft(content_wav_r, n_fft=8192, hop_length=512)
+    s_stft_l = librosa.stft(style_wav_l, n_fft=8192, hop_length=512)
+    s_stft_r = librosa.stft(style_wav_r, n_fft=8192, hop_length=512)
 
-    # print()
+    # Run the process on the GPU if that's a viable option
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
 
-    # fig, ax = plt.subplots()
-    # img = librosa.display.specshow(librosa.amplitude_to_db(c_stft_l,
-    #                                                     ref=np.max),
-    #                             y_axis='log', x_axis='time', ax=ax)
-    # ax.set_title('Power spectrogram')
-    # fig.colorbar(img, ax=ax, format="%+2.0f dB")
+    # Hyperparameters
+    learning_rate = .01
 
-    # plt.show()
+    # Create Convolutional Neural Network
+    model = ConvNet().to(device)
+
 
 # Run the script
 if __name__ == "__main__":
