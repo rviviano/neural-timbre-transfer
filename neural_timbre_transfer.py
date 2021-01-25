@@ -49,6 +49,29 @@ class ConvNet(nn.Module):
         pass
 
 
+class ContentLoss(nn.Module):
+
+    def __init__(self, target):
+        super(ContentLoss, self).__init__()
+        self.target = target.detach()
+
+    def forward(self, input):
+        self.loss = F.mse_loss(input, self.target)
+        return input
+
+
+class StyleLoss(nn.Module):
+
+    def __init__(self, target_feature):
+        super(StyleLoss, self).__init__()
+        self.target = gram_matrix(target_feature).detach()
+
+    def forward(self, input):
+        G = gram_matrix(input)
+        self.loss = F.mse_loss(G, self.target)
+        return input
+
+
 # Decorator definitions
 def deprecated(func):
     """Decorator to mark deprecated functions. Emit warning on function call"""
@@ -181,6 +204,14 @@ def gram_matrix(input):
     return G.div(a * b * c * d) 
 
 
+def get_losses(cnn, content_stft, style_stft):
+    """ Add content loss and style loss layers after convolution step"""
+    pass
+
+
+
+
+
 def main():
     # Get input wavs and output directory from commandline
     content_path, style_path, out_dir = process_options() 
@@ -211,6 +242,11 @@ def main():
     s_stft_l = librosa.stft(style_wav_l, n_fft=8192, hop_length=512)
     s_stft_r = librosa.stft(style_wav_r, n_fft=8192, hop_length=512)
 
+    # Convert to torch tensors
+    c_stft_l_tensor = torch.as_tensor(c_stft_l)
+    c_stft_r_tensor = torch.as_tensor(c_stft_r)
+    s_stft_l_tensor = torch.as_tensor(s_stft_l)
+    s_stft_r_tensor = torch.as_tensor(s_stft_r)
     # Run the process on the GPU if that's a viable option
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
 
