@@ -9,10 +9,6 @@
 # August 20th, 2020
 # rayviviano@gmail.com
 
-# TODO: Consider adding monophonic and polyphonic pitch detection of the 
-# input wavs, then pitchbend/timestretch the "style" audio wav to match
-# the "content" audio wav.
-
 
 from __future__ import print_function, division
 import os, sys, getopt, traceback, functools, warnings
@@ -28,6 +24,8 @@ import torch.optim as optim
 # import matplotlib
 # matplotlib.use('agg')
 import matplotlib.pyplot as plt
+
+#TODO: Add weights?
 
 # No real rhyme or reason to this
 __version__ = "0.0.1"
@@ -45,8 +43,9 @@ class ConvNet(nn.Module):
                                kernel_size=3, stride=1, padding=1)
 
     
-    def forward(self, x):
-        pass
+    def forward(self, input):
+        self.output = self.conv1(input)
+        return self.output
 
 
 class ContentLoss(nn.Module):
@@ -67,9 +66,13 @@ class StyleLoss(nn.Module):
         self.target = gram_matrix(target_feature).detach()
 
     def forward(self, input):
-        G = gram_matrix(input)
-        self.loss = F.mse_loss(G, self.target)
+        self.G = gram_matrix(input)
+        self.loss = F.mse_loss(self.G, self.target)
         return input
+
+    def backward(self, retain_variables=True):
+        self.loss.backward(retain_graph=True)
+        return self.loss
 
 
 # Decorator definitions
@@ -204,9 +207,54 @@ def gram_matrix(input):
     return G.div(a * b * c * d) 
 
 
-def get_losses(cnn, content_stft, style_stft):
-    """ Add content loss and style loss layers after convolution step"""
-    pass
+def get_losses(cnn, content_stft, style_stft, device):
+    """ Add content loss and style loss layers after convolution step
+        
+        Note: At this step, content_stft and style_stft should be 
+              PyTorch tensors
+    """
+
+    cnn = copy.deepcopy(cnn)
+    content_losses = []
+    style_losses = []
+
+    # Layers of the convolution network to asses content and stlye loss at
+    content_layers = ["conv_1"]
+    style_layers = ["conv_1"]
+
+    # New network to merge convolution network, content loss network, and
+    # style loss network together to calculate content and style losses at 
+    # each appropriate convolution network layer
+    model = nn.sequential().to(device)
+
+    layer_level = 1
+    for layer in list(cnn.layers):
+        if isinstance(layer, nn.Conv1d):
+            # Add CNN convolution layer to new model
+            name = "conv_" + str(layer_level)
+            model.add_module(name, layer)
+
+            if name in content_layers:
+                # Add content loss at the current layer
+                target = model(content_stft).clone()
+                content_loss = ContentLoss(target)
+                model.add_module("content_loss" + str(layer_level), content_loss)
+                content_losses.append(content_loss)
+
+            if name in style_layers:
+                # Add style loss at the current layer
+                target = model(style_stft).clone()
+                style_loss = StyleLoss(target)
+                model.add_module("style_loss" + str(layer_level), style_loss)
+                style_losses.append(style_loss)
+
+            # TODO: Add code for ReLUs and MaxPools if they are added 
+            #       to the cnn definition
+            
+            # TODO: Only one layer at the moment so this is useless
+            layer_level += 1
+
+    return model, content_losses, style_losses
 
 
 
@@ -247,7 +295,8 @@ def main():
     c_stft_r_tensor = torch.as_tensor(c_stft_r)
     s_stft_l_tensor = torch.as_tensor(s_stft_l)
     s_stft_r_tensor = torch.as_tensor(s_stft_r)
-    # Run the process on the GPU if that's a viable option
+
+    # Run process on GPU if that's a viable option
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
 
     # Hyperparameters
