@@ -257,9 +257,6 @@ def get_losses(cnn, content_stft, style_stft, device):
     return model, content_losses, style_losses
 
 
-
-
-
 def main():
     # Get input wavs and output directory from commandline
     content_path, style_path, out_dir = process_options() 
@@ -298,9 +295,6 @@ def main():
 
     # Run process on GPU if that's a viable option
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
-
-    # Hyperparameters
-    learning_rate = .01
 
     # Create Convolutional Neural Network
     model = ConvNet().to(device)
