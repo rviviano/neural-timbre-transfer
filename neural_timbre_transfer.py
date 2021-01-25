@@ -164,13 +164,21 @@ def compare_wavs_length(c_wv, s_wv):
     return s_wv
 
 
-def plot_spectrogram():
+def plot_spectrogram(stft):
     fig, ax = plt.subplots()
     img = librosa.display.specshow(librosa.amplitude_to_db(stft, ref=np.max),
                                    y_axis='log', x_axis='time', ax=ax)
     ax.set_title('Spectrogram')
     fig.colorbar(img, ax=ax, format="%+2.0f dB")
     plt.show()
+
+
+def gram_matrix(input):
+    """ Gram Matrix for Style Loss Module """
+    a, b, c, d = input.size()
+    features = input.view(a * b, c * d)
+    G = torch.mm(features, features.t())
+    return G.div(a * b * c * d) 
 
 
 def main():
