@@ -1,28 +1,40 @@
 # Neural Timbre Transfer
  CNN Neural Style Transfer for Audio with Python and PyTorch
 
- TODO: Add more to the general description.
-
-## Getting Started
- TODO 
-
- ### Prerequisites 
- TODO
+## Prerequisites 
+ [Python3](https://www.python.org/)
+ [PyTorch](https://pytorch.org/)
+ [NumPy](https://numpy.org/)
+ [Librosa](https://librosa.org/doc/latest/index.html#)
 
  Tested with python 3.8 on Windows 10
 
- ### Installation 
+## Installation 
  TODO
  
 ## Usage
- TODO
- (pip should install the command line tool **ntt**)
+ ```
+ python neural_timbre_transfer --content <arg> --style <arg>  --out <arg> -h
+ ```
 
- ### Linux/Mac Terminal and Windows PowerShell
- TODO
+### Options
 
-#### Options Explanation
- TODO
+ Mandatory Options:
+
+    --c, --content  
+        The wav file to take the content from.
+    
+    --s, --style    
+        The wav file to take the style (timbre/spectral characteristics) from to transfer to the content.
+
+    --o, --out
+        Directory to save output wavs to. If the provided path does not exist, then the script will try to create it.
+
+ Optional Options:
+
+    -h             
+        Print help message and exit
+
 
 ## Authors
  * **Raymond Viviano** - *Initial Work* - https://github.com/rviviano
