@@ -25,10 +25,12 @@
         The wav file to take the content from.
     
     --s, --style    
-        The wav file to take the style (timbre/spectral characteristics) from to transfer to the content.
+        The wav file to take the style (timbre/spectral characteristics) from 
+        to transfer to the content.
 
     --o, --out
-        Directory to save output wavs to. If the provided path does not exist, then the script will try to create it.
+        Directory to save output wavs to. If the provided path does not exist, 
+        then the script will try to create it.
 
  Optional Options:
 
