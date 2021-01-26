@@ -3,8 +3,11 @@
 
 ## Prerequisites 
  [Python3](https://www.python.org/)
+
  [PyTorch](https://pytorch.org/)
+
  [NumPy](https://numpy.org/)
+ 
  [Librosa](https://librosa.org/doc/latest/index.html#)
 
  Tested with python 3.8 on Windows 10
