@@ -37,9 +37,10 @@ class WavError(Exception):
 
 
 class ConvNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_frames):
         super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=4097, out_channels=4097,
+        self.num_frames = num_frames
+        self.conv1 = nn.Conv1d(in_channels=4097, out_channels=self.num_frames,
                                kernel_size=3, stride=1, padding=1)
 
     
@@ -49,30 +50,28 @@ class ConvNet(nn.Module):
 
 
 class ContentLoss(nn.Module):
-
     def __init__(self, target):
         super(ContentLoss, self).__init__()
         self.target = target.detach()
 
-    def forward(self, input):
-        self.loss = F.mse_loss(input, self.target)
+    def forward(self, input_data):
+        self.loss = F.mse_loss(input_data, self.target)
         return input
 
 
 class StyleLoss(nn.Module):
-
     def __init__(self, target_feature):
         super(StyleLoss, self).__init__()
         self.target = gram_matrix(target_feature).detach()
 
-    def forward(self, input):
-        self.G = gram_matrix(input)
+    def forward(self, input_data):
+        self.G = gram_matrix(input_data)
         self.loss = F.mse_loss(self.G, self.target)
         return input
 
-    def backward(self, retain_variables=True):
-        self.loss.backward(retain_graph=True)
-        return self.loss
+    # def backward(self, retain_variables=True):
+    #     self.loss.backward(retain_graph=True)
+    #     return self.loss
 
 
 # Decorator definitions
@@ -190,19 +189,20 @@ def compare_wavs_length(c_wv, s_wv):
     return s_wv
 
 
-def plot_spectrogram(stft):
+def plot_spectrogram(stft, out_dir, filename):
     fig, ax = plt.subplots()
     img = librosa.display.specshow(librosa.amplitude_to_db(stft, ref=np.max),
                                    y_axis='log', x_axis='time', ax=ax)
     ax.set_title('Spectrogram')
     fig.colorbar(img, ax=ax, format="%+2.0f dB")
     plt.show()
+    plt.savefig(join(out_dir, filename))
 
 
-def gram_matrix(input):
+def gram_matrix(input_data):
     """ Gram Matrix for Style Loss Module """
-    a, b, c, d = input.size()
-    features = input.view(a * b, c * d)
+    a, b, c, d = input_data.size()
+    features = input_data.view(a * b, c * d)
     G = torch.mm(features, features.t())
     return G.div(a * b * c * d) 
 
@@ -218,6 +218,8 @@ def get_losses(cnn, content_stft, style_stft, device):
     content_losses = []
     style_losses = []
 
+    # TODO: Add layers as the convolutional network gets more complicated
+
     # Layers of the convolution network to asses content and stlye loss at
     content_layers = ["conv_1"]
     style_layers = ["conv_1"]
@@ -225,10 +227,10 @@ def get_losses(cnn, content_stft, style_stft, device):
     # New network to merge convolution network, content loss network, and
     # style loss network together to calculate content and style losses at 
     # each appropriate convolution network layer
-    model = nn.sequential().to(device)
+    model = nn.Sequential().to(device)
 
     layer_level = 1
-    for layer in list(cnn.layers):
+    for layer in cnn.children():
         if isinstance(layer, nn.Conv1d):
             # Add CNN convolution layer to new model
             name = "conv_" + str(layer_level)
@@ -257,6 +259,52 @@ def get_losses(cnn, content_stft, style_stft, device):
     return model, content_losses, style_losses
 
 
+def get_optimizer(input_data):
+    """ Gradient Descent"""
+    return optim.LBFGS([input_data.requires_grad_()])
+
+
+def run_transfer(cnn, content_stft, style_stft, device, num_steps=250):
+    """ TODO: If implementing style and content weights at the command line 
+              later, pass them to this function as well.
+    """
+    print("Building model...")
+
+    model, content_losses, style_losses = get_losses(cnn, content_stft, 
+                                                     style_stft, device)
+    
+    optimizer = get_optimizer(content_stft)
+    
+    print("Optimizing...")
+
+    run = [0]
+    while run[0] <= num_steps:
+
+        def closure():
+            optimizer.zero_grad()
+            model(content_stft)
+            content_score = sum([cl.loss for cl in content_losses])
+            style_score = sum([sl.loss for sl in style_losses])
+
+            # TODO: Multiply scores by weights
+            
+            loss = style_score + content_score
+            loss.backward()
+            
+            run[0] += 1
+
+            if run[0] % 50 == 0:
+                print("run {}:".format(run))
+                print('Style Loss : {:4f} Content Loss: {:4f}'.format(
+                    style_score.item(), content_score.item()))
+                print()
+
+            return style_score + content_score
+
+        optimizer.step(closure)
+
+    return content_stft
+
 def main():
     # Get input wavs and output directory from commandline
     content_path, style_path, out_dir = process_options() 
@@ -272,9 +320,6 @@ def main():
     # Check compatibility of wav lengths
     style_wav = compare_wavs_length(content_wav, style_wav)
 
-    # Define an output wav 
-    output_wav = np.copy(content_wav)
-
     # Separate Short-time Fourier Transforms for left and right channels
     content_wav_l = content_wav[0,:]
     content_wav_r = content_wav[1,:]
@@ -287,18 +332,34 @@ def main():
     s_stft_l = librosa.stft(style_wav_l, n_fft=8192, hop_length=512)
     s_stft_r = librosa.stft(style_wav_r, n_fft=8192, hop_length=512)
 
+    # TODO: Just pass  the magnitude of frequency bin f at frame t
+    #       arrays to the networks, do not pass the complex-valued stft matrix
+    
     # Convert to torch tensors
     c_stft_l_tensor = torch.as_tensor(c_stft_l)
     c_stft_r_tensor = torch.as_tensor(c_stft_r)
     s_stft_l_tensor = torch.as_tensor(s_stft_l)
     s_stft_r_tensor = torch.as_tensor(s_stft_r)
 
+    # Reshape tensors to pass to neural net
+    c_stft_l_tensor = c_stft_l_tensor.view(-1, c_stft_l.shape[0], c_stft_l.shape[1])
+    c_stft_r_tensor = c_stft_r_tensor.view(-1, c_stft_r.shape[0], c_stft_r.shape[1])
+    s_stft_l_tensor = s_stft_l_tensor.view(-1, s_stft_l.shape[0], s_stft_l.shape[1])
+    s_stft_r_tensor = s_stft_r_tensor.view(-1, s_stft_r.shape[0], s_stft_r.shape[1])
+
     # Run process on GPU if that's a viable option
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
 
     # Create Convolutional Neural Network
-    model = ConvNet().to(device)
+    cnn = ConvNet(num_frames=c_stft_l.shape[1]).to(device)
 
+    # Run the transfer (left only as a test)
+    output = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, num_steps=250)
+
+    # Plot the content, style, and output stfts
+    plot_spectrogram(c_stft_l, out_dir, "content_spectrogram.png")
+    plot_spectrogram(s_stft_l, out_dir, "style_spectrogram.png")
+    plot_spectrogram(output, out_dir, "output_spectrogram.png")
 
 # Run the script
 if __name__ == "__main__":
