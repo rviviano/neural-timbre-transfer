@@ -293,7 +293,7 @@ def run_transfer(cnn, content_stft, style_stft, device, num_steps=250):
             
             run[0] += 1
 
-            if run[0] % 50 == 0:
+            if run[0] % 10 == 0:
                 print("run {}:".format(run))
                 print('Style Loss : {:4f} Content Loss: {:4f}'.format(
                     style_score.item(), content_score.item()))
@@ -326,20 +326,27 @@ def main():
     style_wav_l = style_wav[0,:]
     style_wav_r = style_wav[1,:]
 
+    # TODO: Encapsulate the corresponding spectrograms, extract magnitude,
+    #       tensor conversion, and tensor reshaping into a separate function
+    #       def get_spectrogram_magnitude_tensor(input_wav):
+
     # Corresponding spectograms 
     c_stft_l = librosa.stft(content_wav_l, n_fft=8192, hop_length=512)
     c_stft_r = librosa.stft(content_wav_r, n_fft=8192, hop_length=512)
     s_stft_l = librosa.stft(style_wav_l, n_fft=8192, hop_length=512)
     s_stft_r = librosa.stft(style_wav_r, n_fft=8192, hop_length=512)
 
-    # TODO: Just pass  the magnitude of frequency bin f at frame t
-    #       arrays to the networks, do not pass the complex-valued stft matrix
-    
+    # Extract log magnitude
+    c_stft_l_log_mag = np.log1p(np.abs(c_stft_l))
+    c_stft_r_log_mag = np.log1p(np.abs(c_stft_r))
+    s_stft_l_log_mag = np.log1p(np.abs(s_stft_l))
+    s_stft_r_log_mag = np.log1p(np.abs(s_stft_r))
+
     # Convert to torch tensors
-    c_stft_l_tensor = torch.as_tensor(c_stft_l)
-    c_stft_r_tensor = torch.as_tensor(c_stft_r)
-    s_stft_l_tensor = torch.as_tensor(s_stft_l)
-    s_stft_r_tensor = torch.as_tensor(s_stft_r)
+    c_stft_l_tensor = torch.as_tensor(c_stft_l_log_mag)
+    c_stft_r_tensor = torch.as_tensor(c_stft_r_log_mag)
+    s_stft_l_tensor = torch.as_tensor(s_stft_l_log_mag)
+    s_stft_r_tensor = torch.as_tensor(s_stft_r_log_mag)
 
     # Reshape tensors to pass to neural net
     c_stft_l_tensor = c_stft_l_tensor.view(-1, c_stft_l.shape[0], c_stft_l.shape[1])
