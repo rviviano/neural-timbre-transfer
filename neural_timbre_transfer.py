@@ -58,8 +58,9 @@ class ContentLoss(nn.Module):
         self.target = target.detach()
 
     def forward(self, input_data):
+        self.output = input_data
         self.loss = F.mse_loss(input_data, self.target)
-        return input
+        return self.output
 
 
 class StyleLoss(nn.Module):
@@ -68,13 +69,10 @@ class StyleLoss(nn.Module):
         self.target = gram_matrix(target_feature).detach()
 
     def forward(self, input_data):
+        self.output = input_data
         self.G = gram_matrix(input_data)
         self.loss = F.mse_loss(self.G, self.target)
-        return input
-
-    # def backward(self, retain_variables=True):
-    #     self.loss.backward(retain_graph=True)
-    #     return self.loss
+        return self.output
 
 
 # Decorator definitions
@@ -227,21 +225,17 @@ def phase_reconstruct(input_mag):
     
     return phase
 
-
+#TODO: Check that this works with the way data are handled by this script
 def gram_matrix(input_data):
     """ Gram Matrix for Style Loss Module """
-    a, b, c, d = input_data.size()
-    features = input_data.view(a * b, c * d)
+    a, b, cd = input_data.size() # TODO: Only passing 3dim tensors at the moment...
+    features = input_data.view(a * b, cd) # TODO: This might need to be a, b*cd, or b, a*cd. CHECK!
     G = torch.mm(features, features.t())
-    return G.div(a * b * c * d) 
+    return G.div(a * b * cd) 
 
 
-def get_losses(cnn, content_stft, style_stft, device):
-    """ Add content loss and style loss layers after convolution step
-        
-        Note: At this step, content_stft and style_stft should be 
-              PyTorch tensors
-    """
+def get_model_and_losses(cnn, content_tensor, style_tensor, device):
+    """ Add transparent content and style loss layers after convolution step """
 
     cnn = copy.deepcopy(cnn)
     content_losses = []
@@ -249,13 +243,13 @@ def get_losses(cnn, content_stft, style_stft, device):
 
     # TODO: Add layers as the convolutional network gets more complicated
 
-    # Layers of the convolution network to asses content and stlye loss at
+    # Layers of the convolution network to asses content and style loss at
     content_layers = ["conv_1"]
     style_layers = ["conv_1"]
 
     # New network to merge convolution network, content loss network, and
     # style loss network together to calculate content and style losses at 
-    # each appropriate convolution network layer
+    # each appropriate convolution network layer. Added layers are transparent.
     model = nn.Sequential().to(device)
 
     layer_level = 1
@@ -267,14 +261,14 @@ def get_losses(cnn, content_stft, style_stft, device):
 
             if name in content_layers:
                 # Add content loss at the current layer
-                target = model(content_stft).clone()
+                target = model(content_tensor).detach()
                 content_loss = ContentLoss(target)
                 model.add_module("content_loss" + str(layer_level), content_loss)
                 content_losses.append(content_loss)
 
             if name in style_layers:
                 # Add style loss at the current layer
-                target = model(style_stft).clone()
+                target = model(style_tensor).detach()
                 style_loss = StyleLoss(target)
                 model.add_module("style_loss" + str(layer_level), style_loss)
                 style_losses.append(style_loss)
@@ -299,8 +293,8 @@ def run_transfer(cnn, content_stft, style_stft, device, num_steps=250):
     """
     print("Building model...")
 
-    model, content_losses, style_losses = get_losses(cnn, content_stft, 
-                                                     style_stft, device)
+    model, content_losses, style_losses = get_model_and_losses(cnn, content_stft, 
+                                                               style_stft, device)
     
     optimizer = get_optimizer(content_stft)
     
@@ -391,12 +385,21 @@ def main():
     cnn = ConvNet(num_frames=c_stft_l.shape[1]).to(device)
 
     # Run the transfer (left only as a test)
-    output = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, num_steps=250)
+    output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, num_steps=250)
+
+    # Inverse log
+    output_mag_l = np.exp(output) - 1
+
+    # Recover phase
+    phase = phase_reconstruct(output_mag_l)
+
+    # Combine magnitude and phase information
+    output_stft_l = output_mag_l * np.exp(1j*phase)
 
     # Plot the content, style, and output stfts
     plot_spectrogram(c_stft_l, out_dir, "content_spectrogram.png")
     plot_spectrogram(s_stft_l, out_dir, "style_spectrogram.png")
-    plot_spectrogram(output, out_dir, "output_spectrogram.png")
+    plot_spectrogram(output_stft_l, out_dir, "output_spectrogram.png")
 
 # Run the script
 if __name__ == "__main__":
