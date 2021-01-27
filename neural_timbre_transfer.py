@@ -25,7 +25,10 @@ import torch.optim as optim
 # matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
-#TODO: Add weights?
+#TODO: Add content and style weighting?
+#TODO: Figuring out the besting scaling for the log magnitude stft arrays
+#      will take some trial and error
+#TODO: Accept n_fft on commandline, default to 8192?
 
 # No real rhyme or reason to this
 __version__ = "0.0.1"
@@ -42,7 +45,7 @@ class ConvNet(nn.Module):
         self.num_frames = num_frames
         self.conv1 = nn.Conv1d(in_channels=4097, out_channels=self.num_frames,
                                kernel_size=3, stride=1, padding=1)
-
+        # TODO: Add ReLUs, MaxPools, and other Conv Layers
     
     def forward(self, input):
         self.output = self.conv1(input)
@@ -189,6 +192,11 @@ def compare_wavs_length(c_wv, s_wv):
     return s_wv
 
 
+# TODO
+def get_spectrogram_magnitude_tensor(input_wav):
+    pass
+
+
 def plot_spectrogram(stft, out_dir, filename):
     fig, ax = plt.subplots()
     img = librosa.display.specshow(librosa.amplitude_to_db(stft, ref=np.max),
@@ -197,6 +205,27 @@ def plot_spectrogram(stft, out_dir, filename):
     fig.colorbar(img, ax=ax, format="%+2.0f dB")
     plt.show()
     plt.savefig(join(out_dir, filename))
+
+
+def phase_reconstruct(input_mag):
+    """ Griffin and Lim algorithm for phase reconstruction.
+
+        Note: Assumes that the magnitude information is not on a
+              log scale. Make sure to run mag = np.exp(log_mag) - 1
+              before passing the data to this function
+    """
+
+    # Initialize random phases
+    phase = 2 * np.pi * np.random.random_sample(input_mag.shape) - np.pi
+    for i in range(500):
+        # Compute spectrogram
+        spectrogram = input_mag * np.exp(1j*phase)
+        # Inverse stft to get signal from mag info and imperfect phase info
+        temp_signal = librosa.istft(spectrogram)
+        # Recover some meaningful phase info
+        phase = np.angle(librosa.stft(temp_signal, 8192))
+    
+    return phase
 
 
 def gram_matrix(input_data):
@@ -304,6 +333,7 @@ def run_transfer(cnn, content_stft, style_stft, device, num_steps=250):
         optimizer.step(closure)
 
     return content_stft
+
 
 def main():
     # Get input wavs and output directory from commandline
