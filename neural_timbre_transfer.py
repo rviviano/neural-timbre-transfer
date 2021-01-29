@@ -43,9 +43,10 @@ class ConvNet(nn.Module):
     def __init__(self, num_frames):
         super(ConvNet, self).__init__()
         self.num_frames = num_frames
-        self.conv1 = nn.Conv1d(in_channels=4097, out_channels=self.num_frames,
+        self.conv1 = nn.Conv1d(in_channels=4097, out_channels=4097,
                                kernel_size=3, stride=1, padding=1)
         # TODO: Add ReLUs, MaxPools, and other Conv Layers
+        # TODO: Reference to number of frames is unnecessary 
     
     def forward(self, input):
         self.output = self.conv1(input)
@@ -53,26 +54,36 @@ class ConvNet(nn.Module):
 
 
 class ContentLoss(nn.Module):
-    def __init__(self, target):
+    def __init__(self, target, content_weight):
         super(ContentLoss, self).__init__()
-        self.target = target.detach()
-
+        self.content_weight = content_weight
+        self.target = target.detach() * self.content_weight
+        
     def forward(self, input_data):
+        self.loss = F.mse_loss(input_data * self.content_weight, self.target)
         self.output = input_data
-        self.loss = F.mse_loss(input_data, self.target)
         return self.output
+
+    def backward(self):
+        self.loss.backward(retain_graph=True)
+        return self.loss
 
 
 class StyleLoss(nn.Module):
-    def __init__(self, target_feature):
+    def __init__(self, target_feature, style_weight):
         super(StyleLoss, self).__init__()
-        self.target = gram_matrix(target_feature).detach()
+        self.style_weight = style_weight
+        self.target = target_feature.detach() * self.style_weight
 
     def forward(self, input_data):
-        self.output = input_data
-        self.G = gram_matrix(input_data)
-        self.loss = F.mse_loss(self.G, self.target)
+        self.output = input_data.detach()
+        self.G = gram_matrix(input_data).mul_(self.style_weight)
+        self.loss = F.mse_loss(self.G, self.target, size_average=False)
         return self.output
+
+    def backward(self):
+        self.loss.backward(retain_graph=True)
+        return self.loss
 
 
 # Decorator definitions
@@ -201,7 +212,8 @@ def plot_spectrogram(stft, out_dir, filename):
                                    y_axis='log', x_axis='time', ax=ax)
     ax.set_title('Spectrogram')
     fig.colorbar(img, ax=ax, format="%+2.0f dB")
-    plt.show()
+    fig.tight_layout()
+    # plt.show()
     plt.savefig(join(out_dir, filename))
 
 
@@ -213,6 +225,7 @@ def phase_reconstruct(input_mag):
               before passing the data to this function
     """
 
+    print("Reconstructing phase information...")
     # Initialize random phases
     phase = 2 * np.pi * np.random.random_sample(input_mag.shape) - np.pi
     for i in range(500):
@@ -222,19 +235,31 @@ def phase_reconstruct(input_mag):
         temp_signal = librosa.istft(spectrogram)
         # Recover some meaningful phase info
         phase = np.angle(librosa.stft(temp_signal, 8192))
+
+        if i % 25 == 0:
+            print(str(round(i*.2, 2)) + "% complete")
     
     return phase
 
-#TODO: Check that this works with the way data are handled by this script
+
 def gram_matrix(input_data):
-    """ Gram Matrix for Style Loss Module """
-    a, b, cd = input_data.size() # TODO: Only passing 3dim tensors at the moment...
-    features = input_data.view(a * b, cd) # TODO: This might need to be a, b*cd, or b, a*cd. CHECK!
+    """ Gram Matrix for Style Loss Module
+
+        a = batch size (1)
+        b = number of feature maps
+        c*d = number of features in a feature map
+
+        Note: This specification is specific to 1d convolution
+    
+    """
+    _, b, cd = input_data.size() # Only passing 3dim tensors
+    features = input_data.view(b, cd) 
     G = torch.mm(features, features.t())
-    return G.div(a * b * cd) 
+    return G.div(b * cd) 
 
 
-def get_model_and_losses(cnn, content_tensor, style_tensor, device):
+def get_model_and_losses(cnn, content_tensor, style_tensor, content_weight, 
+                         style_weight, device):
     """ Add transparent content and style loss layers after convolution step """
 
     cnn = copy.deepcopy(cnn)
@@ -262,14 +287,15 @@ def get_model_and_losses(cnn, content_tensor, style_tensor, device):
             if name in content_layers:
                 # Add content loss at the current layer
                 target = model(content_tensor).detach()
-                content_loss = ContentLoss(target)
+                content_loss = ContentLoss(target, content_weight)
                 model.add_module("content_loss" + str(layer_level), content_loss)
                 content_losses.append(content_loss)
 
             if name in style_layers:
                 # Add style loss at the current layer
                 target = model(style_tensor).detach()
-                style_loss = StyleLoss(target)
+                target_gram = gram_matrix(target)
+                style_loss = StyleLoss(target_gram, style_weight)
                 model.add_module("style_loss" + str(layer_level), style_loss)
                 style_losses.append(style_loss)
 
@@ -282,51 +308,52 @@ def get_model_and_losses(cnn, content_tensor, style_tensor, device):
     return model, content_losses, style_losses
 
 
-def get_optimizer(input_data):
+def get_optimizer(content_tensor):
     """ Gradient Descent"""
-    return optim.LBFGS([input_data.requires_grad_()])
+    content_param = nn.Parameter(content_tensor.data)
+    optimizer = optim.LBFGS([content_param.requires_grad_()])
+    return content_param, optimizer
 
 
-def run_transfer(cnn, content_stft, style_stft, device, num_steps=250):
+def run_transfer(cnn, content_tensor, style_tensor, device, content_weight=1, 
+                 style_weight=10, num_steps=250):
     """ TODO: If implementing style and content weights at the command line 
               later, pass them to this function as well.
     """
     print("Building model...")
 
-    model, content_losses, style_losses = get_model_and_losses(cnn, content_stft, 
-                                                               style_stft, device)
+    model, content_losses, style_losses = get_model_and_losses(cnn, content_tensor, style_tensor, content_weight, style_weight, device)
     
-    optimizer = get_optimizer(content_stft)
-    
+    content_param, optimizer = get_optimizer(content_tensor.contiguous())
+
     print("Optimizing...")
 
     run = [0]
     while run[0] <= num_steps:
 
+        # TODO: Consider impact of input clamping
         def closure():
             optimizer.zero_grad()
-            model(content_stft)
-            content_score = sum([cl.loss for cl in content_losses])
-            style_score = sum([sl.loss for sl in style_losses])
+            model(content_param)
 
-            # TODO: Multiply scores by weights
-            
+            content_score = sum([cl.backward() for cl in content_losses])
+            style_score = sum([sl.backward() for sl in style_losses])
+
             loss = style_score + content_score
-            loss.backward()
-            
+
             run[0] += 1
 
             if run[0] % 10 == 0:
-                print("run {}:".format(run))
+                print("Run {}:".format(run))
                 print('Style Loss : {:4f} Content Loss: {:4f}'.format(
                     style_score.item(), content_score.item()))
                 print()
 
-            return style_score + content_score
+            return loss
 
         optimizer.step(closure)
 
-    return content_stft
+    return content_param.data
 
 
 def main():
@@ -385,10 +412,14 @@ def main():
     cnn = ConvNet(num_frames=c_stft_l.shape[1]).to(device)
 
     # Run the transfer (left only as a test)
-    output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, num_steps=250)
+    output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, 
+                            content_weight=1, style_weight=100, num_steps=250)
+    output_l = output_l.cpu()
+    output_l = output_l.squeeze(0)
 
     # Inverse log
-    output_mag_l = np.exp(output) - 1
+    output_l = output_l.numpy()
+    output_mag_l = np.exp(output_l) - 1
 
     # Recover phase
     phase = phase_reconstruct(output_mag_l)
