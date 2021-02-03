@@ -32,8 +32,16 @@ import matplotlib.pyplot as plt
 #TODO: Accept n_fft on commandline, default to 8192?
 #TODO: Accept hop_length specification on command line?
 #TODO: Add more verbose print msgs throughout script
+#TODO: Implement a 2d-conv option, also define a gram matrix function specific 
+#      to the 2d-conv case
+#TODO: Add maxpooling and additional convolution when implementing the 2d case
+#TODO: 2d-convolution might be better at detecting pitch bends
+#TODO: set 'center' to false for all stfts and istfts
+#TODO: figure out if pulsing/banding has to do with hop_length specs, loss_function specs,
+#      or if it's just related to the test audio
+#TODO: Try additional test audio
 
-__version__ = "0.0.1"
+__version__ = "0.1.0"
 
 
 # Class Definitions
@@ -404,13 +412,13 @@ def main():
     # Run the transfer on left signals
     print("Running timbre transfer on left channel...")
     output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, 
-                            content_weight=1, style_weight=40, num_steps=1000)
+                            content_weight=1, style_weight=50, num_steps=1750)
     
 
     # Run the transfer on right signals
     print("Running timbre transfer on right channel...")
     output_r = run_transfer(cnn, c_stft_r_tensor, s_stft_r_tensor, device, 
-                            content_weight=1, style_weight=40, num_steps=1000)
+                            content_weight=1, style_weight=50, num_steps=1750)
     
     output_l = output_l.cpu()
     output_r = output_r.cpu()
@@ -427,7 +435,7 @@ def main():
     # Recover phase
     print("Recovering phase for left channel...")
     phase_l = phase_reconstruct(output_mag_l)
-    
+
     print("Recovering phase for right channel...")
     phase_r = phase_reconstruct(output_mag_r)
 
