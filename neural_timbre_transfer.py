@@ -13,6 +13,7 @@
 from __future__ import print_function, division
 import os, sys, getopt, traceback, functools, warnings
 import librosa, librosa.display
+import soundfile as sf
 import numpy as np 
 from os.path import isdir, isfile, abspath, join, basename, splitext, exists
 import copy 
@@ -29,8 +30,9 @@ import matplotlib.pyplot as plt
 #TODO: Figuring out the besting scaling for the log magnitude stft arrays
 #      will take some trial and error
 #TODO: Accept n_fft on commandline, default to 8192?
+#TODO: Accept hop_length specification on command line?
+#TODO: Add more verbose print msgs throughout script
 
-# No real rhyme or reason to this
 __version__ = "0.0.1"
 
 
@@ -40,13 +42,11 @@ class WavError(Exception):
 
 
 class ConvNet(nn.Module):
-    def __init__(self, num_frames):
+    def __init__(self):
         super(ConvNet, self).__init__()
-        self.num_frames = num_frames
         self.conv1 = nn.Conv1d(in_channels=4097, out_channels=4097,
                                kernel_size=3, stride=1, padding=1)
         # TODO: Add ReLUs, MaxPools, and other Conv Layers
-        # TODO: Reference to number of frames is unnecessary 
     
     def forward(self, input):
         self.output = self.conv1(input)
@@ -201,14 +201,26 @@ def compare_wavs_length(c_wv, s_wv):
     return s_wv
 
 
-# TODO
-def get_spectrogram_magnitude_tensor(input_wav):
-    pass
+def get_spectrogram_magnitude_tensor(in_wav):
+    # Corresponding spectogram
+    D = librosa.stft(in_wav, n_fft=8192, hop_length=512)
+    
+    # Extract log magnitude
+    log_mag = np.log1p(np.abs(D))
 
+    # Convert to torch tensors
+    out_tensor = torch.as_tensor(log_mag)
+    out_tensor.contiguous()
+    
+    # Reshape tensors to pass to neural net
+    out_tensor = out_tensor.view(-1, D.shape[0], D.shape[1])
+        
+    return out_tensor
 
+# TODO: Add argument for title
 def plot_spectrogram(stft, out_dir, filename):
     fig, ax = plt.subplots()
-    img = librosa.display.specshow(librosa.amplitude_to_db(stft, ref=np.max),
+    img = librosa.display.specshow(librosa.amplitude_to_db(np.abs(stft), ref=np.max),
                                    y_axis='log', x_axis='time', ax=ax)
     ax.set_title('Spectrogram')
     fig.colorbar(img, ax=ax, format="%+2.0f dB")
@@ -232,9 +244,9 @@ def phase_reconstruct(input_mag):
         # Compute spectrogram
         spectrogram = input_mag * np.exp(1j*phase)
         # Inverse stft to get signal from mag info and imperfect phase info
-        temp_signal = librosa.istft(spectrogram)
+        temp_signal = librosa.istft(spectrogram, hop_length=512)
         # Recover some meaningful phase info
-        phase = np.angle(librosa.stft(temp_signal, 8192))
+        phase = np.angle(librosa.stft(temp_signal, hop_length=512, n_fft=8192))
 
         if i % 25 == 0:
             print(str(round(i*.2, 2)) + "% complete")
@@ -314,10 +326,10 @@ def get_optimizer(content_tensor):
     optimizer = optim.LBFGS([content_param.requires_grad_()])
     return content_param, optimizer
 
-
+# TODO: Figure out why run_transfer takes 10 to 20 more steps than specified...
 def run_transfer(cnn, content_tensor, style_tensor, device, content_weight=1, 
-                 style_weight=10, num_steps=250):
-    """ TODO: If implementing style and content weights at the command line 
+                 style_weight=10, num_steps=2000):
+    """ TODO: If implementing style and content weighting at the command line 
               later, pass them to this function as well.
     """
     print("Building model...")
@@ -377,60 +389,81 @@ def main():
     style_wav_l = style_wav[0,:]
     style_wav_r = style_wav[1,:]
 
-    # TODO: Encapsulate the corresponding spectrograms, extract magnitude,
-    #       tensor conversion, and tensor reshaping into a separate function
-    #       def get_spectrogram_magnitude_tensor(input_wav):
-
-    # Corresponding spectograms 
-    c_stft_l = librosa.stft(content_wav_l, n_fft=8192, hop_length=512)
-    c_stft_r = librosa.stft(content_wav_r, n_fft=8192, hop_length=512)
-    s_stft_l = librosa.stft(style_wav_l, n_fft=8192, hop_length=512)
-    s_stft_r = librosa.stft(style_wav_r, n_fft=8192, hop_length=512)
-
-    # Extract log magnitude
-    c_stft_l_log_mag = np.log1p(np.abs(c_stft_l))
-    c_stft_r_log_mag = np.log1p(np.abs(c_stft_r))
-    s_stft_l_log_mag = np.log1p(np.abs(s_stft_l))
-    s_stft_r_log_mag = np.log1p(np.abs(s_stft_r))
-
-    # Convert to torch tensors
-    c_stft_l_tensor = torch.as_tensor(c_stft_l_log_mag)
-    c_stft_r_tensor = torch.as_tensor(c_stft_r_log_mag)
-    s_stft_l_tensor = torch.as_tensor(s_stft_l_log_mag)
-    s_stft_r_tensor = torch.as_tensor(s_stft_r_log_mag)
-
-    # Reshape tensors to pass to neural net
-    c_stft_l_tensor = c_stft_l_tensor.view(-1, c_stft_l.shape[0], c_stft_l.shape[1])
-    c_stft_r_tensor = c_stft_r_tensor.view(-1, c_stft_r.shape[0], c_stft_r.shape[1])
-    s_stft_l_tensor = s_stft_l_tensor.view(-1, s_stft_l.shape[0], s_stft_l.shape[1])
-    s_stft_r_tensor = s_stft_r_tensor.view(-1, s_stft_r.shape[0], s_stft_r.shape[1])
+    # Get spectrograms, extract magnitude, convert to tensors, reshape
+    c_stft_l_tensor = get_spectrogram_magnitude_tensor(content_wav_l)
+    c_stft_r_tensor = get_spectrogram_magnitude_tensor(content_wav_r)
+    s_stft_l_tensor = get_spectrogram_magnitude_tensor(style_wav_l)
+    s_stft_r_tensor = get_spectrogram_magnitude_tensor(style_wav_r)
 
     # Run process on GPU if that's a viable option
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  
 
     # Create Convolutional Neural Network
-    cnn = ConvNet(num_frames=c_stft_l.shape[1]).to(device)
+    cnn = ConvNet().to(device)
 
-    # Run the transfer (left only as a test)
+    # Run the transfer on left signals
+    print("Running timbre transfer on left channel...")
     output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, 
-                            content_weight=1, style_weight=100, num_steps=250)
+                            content_weight=1, style_weight=40, num_steps=1000)
+    
+
+    # Run the transfer on right signals
+    print("Running timbre transfer on right channel...")
+    output_r = run_transfer(cnn, c_stft_r_tensor, s_stft_r_tensor, device, 
+                            content_weight=1, style_weight=40, num_steps=1000)
+    
     output_l = output_l.cpu()
+    output_r = output_r.cpu()
     output_l = output_l.squeeze(0)
+    output_r = output_r.squeeze(0)
 
     # Inverse log
     output_l = output_l.numpy()
+    output_r = output_r.numpy()
+
     output_mag_l = np.exp(output_l) - 1
+    output_mag_r = np.exp(output_r) - 1
 
     # Recover phase
-    phase = phase_reconstruct(output_mag_l)
+    print("Recovering phase for left channel...")
+    phase_l = phase_reconstruct(output_mag_l)
+    
+    print("Recovering phase for right channel...")
+    phase_r = phase_reconstruct(output_mag_r)
 
     # Combine magnitude and phase information
-    output_stft_l = output_mag_l * np.exp(1j*phase)
+    output_stft_l = output_mag_l * np.exp(1j*phase_l)
+    output_stft_r = output_mag_r * np.exp(1j*phase_r)
 
-    # Plot the content, style, and output stfts
-    plot_spectrogram(c_stft_l, out_dir, "content_spectrogram.png")
-    plot_spectrogram(s_stft_l, out_dir, "style_spectrogram.png")
-    plot_spectrogram(output_stft_l, out_dir, "output_spectrogram.png")
+    # Plot the content, style, and output stfts for the left channel
+    plot_spectrogram(librosa.stft(content_wav_l, n_fft=8192, hop_length=512), 
+                     out_dir, "content_spectrogram-left.png")
+
+    plot_spectrogram(librosa.stft(style_wav_l, n_fft=8192, hop_length=512), 
+                     out_dir, "style_spectrogram-left.png")
+
+    plot_spectrogram(output_stft_l, out_dir, "output_spectrogram-left.png")
+
+    # Plot the content, style, and output stfts for the right channel
+    plot_spectrogram(librosa.stft(content_wav_r, n_fft=8192, hop_length=512), 
+                     out_dir, "content_spectrogram-right.png")
+
+    plot_spectrogram(librosa.stft(style_wav_r, n_fft=8192, hop_length=512), 
+                     out_dir, "style_spectrogram-right.png")
+
+    plot_spectrogram(output_stft_r, out_dir, "output_spectrogram-right.png")
+
+    # Convert stfts back to signals
+    out_signal_l = librosa.istft(output_stft_l, hop_length=512)
+    out_signal_r = librosa.istft(output_stft_r, hop_length=512)
+
+    # Combine left and right channels
+    out_wav = np.zeros((2, out_signal_l.shape[0]))
+    out_wav[0,:] = out_signal_l
+    out_wav[1,:] = out_signal_r
+
+    # Save output wav file (Soundfile expects frames by channels)
+    sf.write(join(out_dir, "timbre-transfer-output.wav"), out_wav.T, 44100)
 
 # Run the script
 if __name__ == "__main__":
