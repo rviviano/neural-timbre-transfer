@@ -4,13 +4,15 @@
 ## Prerequisites 
  [Python3](https://www.python.org/)
 
- [PyTorch](https://pytorch.org/)
-
  [NumPy](https://numpy.org/)
+
+ [PyTorch](https://pytorch.org/)
  
  [Librosa](https://librosa.org/doc/latest/index.html#)
 
- Tested with python 3.8 on Windows 10
+ [PySoundFile](https://pysoundfile.readthedocs.io/)
+
+ Tested with Python 3.8, NumPy 1.18.5, Torch 1.6.0, Librosa 0.8, Sounfile 0.9, on Windows 10
 
 ## Installation 
  TODO
@@ -51,3 +53,5 @@
  * Thanks to Leon A. Gatys, Alexander S. Ecker, & Matthias Bethge for their [Image Style Transfer Using Convolutional Neural Networks](https://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Gatys_Image_Style_Transfer_CVPR_2016_paper.pdf) paper.
  * Thanks to Eric Grinstein, Ngoc Q. K. Duong, Alexey Ozerov, & Patrick Perez for their [Audio Style Transfer](https://arxiv.org/pdf/1710.11385.pdf) paper.
  * Thanks to Prateek Verma & Julius O. Smith for their [Neural Style Transfer for Audio Spectrograms](https://arxiv.org/pdf/1801.01589.pdf) paper.
+ * Thanks to Alexis Jacq for their [PyTorch Style Transfer Tutorial](https://pytorch.org/tutorials/advanced/neural_style_tutorial.html)
+ * Thanks to Md Huzaifah for their [Audio Style Transfer Code](https://github.com/muhdhuz/Audio_NeuralStyle/blob/master/neural_style_audio.ipynb) that I would refer to when I was stuck.
