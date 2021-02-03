@@ -9,9 +9,9 @@
             "type": "python",
             "request": "launch",
             "program": "${file}",
-            "args" : ["--c", "${workspaceFolder}/test/contentTest-Fmin-110BPM-i-i-III-iv.wav",
-                      "--s", "${workspaceFolder}/test/styleTest-Glitch-01.wav",
-                      "--o", "${workspaceFolder}/test/output"],
+            "args" : ["--c", "${workspaceFolder}\\test\\contentTest-Fmin-110BPM-i-i-III-iv.wav",
+                      "--s", "${workspaceFolder}\\test\\styleTest-Glitch-01.wav",
+                      "--o", "${workspaceFolder}\\test\\output"],
             "console": "integratedTerminal"
         }
     ]
