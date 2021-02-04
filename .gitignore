@@ -1,0 +1,4 @@
+
+*.png
+test/output/l_styleweight50-r_styleweight100-nruns2000/timbre-transfer-output.wav
+test/output/styleweight1000-nruns20/timbre-transfer-output.wav
