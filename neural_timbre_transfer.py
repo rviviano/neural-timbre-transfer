@@ -20,9 +20,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-
-# import matplotlib
-# matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
 
@@ -30,7 +27,7 @@ import matplotlib.pyplot as plt
 #TODO: normalize audio before writing wav file
 
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 
 # Class Definitions
@@ -289,8 +286,6 @@ def get_model_and_losses(cnn, content_tensor, style_tensor, content_weight,
     content_losses = []
     style_losses = []
 
-    # TODO: Add layers as the convolutional network gets more complicated
-
     # Layers of the convolution network to asses content and style loss at
     content_layers = ["conv_2"]
     style_layers = ["conv_1", "conv_2"]
@@ -361,21 +356,12 @@ def run_transfer(cnn, content_tensor, style_tensor, device, content_weight=1,
     run = [0]
     while run[0] < num_steps:
 
-        # TODO: Consider impact of input clamping
         def closure():
             content_param.data.clamp_(0, 1)
             optimizer.zero_grad()
-
-            time.sleep(0.5) # TODO: Delete
-
             model(content_param)
 
-            time.sleep(0.5) # TODO: Delete
-
             content_score = sum([cl.backward() for cl in content_losses])
-
-            time.sleep(0.5) # TODO: Delete
-
             style_score = sum([sl.backward() for sl in style_losses])
 
             loss = style_score + content_score
@@ -387,9 +373,6 @@ def run_transfer(cnn, content_tensor, style_tensor, device, content_weight=1,
                 print('Style Loss : {:4f} Content Loss: {:4f}'.format(
                     style_score.item(), content_score.item()))
                 print()
-
-            #Idle CPU a bit so my fans aren't super loud tonight
-            time.sleep(1)
 
             return loss
 
@@ -435,13 +418,13 @@ def main():
     # Run the transfer on left signals
     print("Running timbre transfer on left channel...")
     output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, 
-                            content_weight=1, style_weight=25, num_steps=100)
+                            content_weight=1, style_weight=20, num_steps=2000)
     
 
     # Run the transfer on right signals
     print("Running timbre transfer on right channel...")
     output_r = run_transfer(cnn, c_stft_r_tensor, s_stft_r_tensor, device, 
-                            content_weight=1, style_weight=25, num_steps=100)
+                            content_weight=1, style_weight=20, num_steps=2000)
     
     output_l = output_l.cpu()
     output_r = output_r.cpu()
