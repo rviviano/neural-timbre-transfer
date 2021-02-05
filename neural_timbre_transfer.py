@@ -11,12 +11,11 @@
 
 
 from __future__ import print_function, division
-import os, sys, getopt, traceback, functools, warnings
+import os, sys, getopt, traceback, functools, warnings, copy, time
 import librosa, librosa.display
 import soundfile as sf
 import numpy as np 
 from os.path import isdir, isfile, abspath, join, basename, splitext, exists
-import copy 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -26,22 +25,12 @@ import torch.optim as optim
 # matplotlib.use('agg')
 import matplotlib.pyplot as plt
 
-#TODO: Add content and style weighting?
-#TODO: Figuring out the besting scaling for the log magnitude stft arrays
-#      will take some trial and error
-#TODO: Accept n_fft on commandline, default to 8192?
-#TODO: Accept hop_length specification on command line?
-#TODO: Add more verbose print msgs throughout script
-#TODO: Implement a 2d-conv option, also define a gram matrix function specific 
-#      to the 2d-conv case
-#TODO: Add maxpooling and additional convolution when implementing the 2d case
-#TODO: 2d-convolution might be better at detecting pitch bends
-#TODO: set 'center' to false for all stfts and istfts
-#TODO: figure out if pulsing/banding has to do with hop_length specs, loss_function specs,
-#      or if it's just related to the test audio
-#TODO: Try additional test audio
 
-__version__ = "0.1.0"
+#TODO: Add more verbose print msgs throughout script
+#TODO: normalize audio before writing wav file
+
+
+__version__ = "0.2.0"
 
 
 # Class Definitions
@@ -52,12 +41,25 @@ class WavError(Exception):
 class ConvNet(nn.Module):
     def __init__(self):
         super(ConvNet, self).__init__()
-        self.conv1 = nn.Conv1d(in_channels=4097, out_channels=4097,
-                               kernel_size=3, stride=1, padding=1)
-        # TODO: Add ReLUs, MaxPools, and other Conv Layers
-    
-    def forward(self, input):
-        self.output = self.conv1(input)
+        self.conv1 = nn.Conv2d(in_channels=2049, out_channels=4097,
+                               kernel_size=(5,5), stride=1, padding=2)
+        self.relu1 = nn.ReLU()
+
+        self.maxp1 = nn.MaxPool2d(kernel_size=(1,2))
+
+        self.conv2 = nn.Conv2d(in_channels=4097, out_channels=4097,
+                               kernel_size=(5,5), stride=1, padding=2)
+        self.relu2 = nn.ReLU()
+
+        self.maxp2 = nn.MaxPool2d(kernel_size=(1,2))
+        
+    def forward(self, input_data):
+        self.output = self.conv1(input_data)
+        self.output = self.relu1(self.output)
+        self.output = self.maxp1(self.output)
+        self.output = self.conv2(self.output)
+        self.output = self.relu2(self.output)
+        self.output = self.maxp2(self.output)
         return self.output
 
 
@@ -181,7 +183,7 @@ def process_options():
 
 def load_wav(wav_filepath):
     """Load wav data into np array, resample to 44k"""
-    wv, _ = librosa.load(wav_filepath, sr = 44100, mono=False)                                
+    wv, _ = librosa.load(wav_filepath, sr=44100, mono=False)                                
     return  wv
 
 
@@ -211,17 +213,17 @@ def compare_wavs_length(c_wv, s_wv):
 
 def get_spectrogram_magnitude_tensor(in_wav):
     # Corresponding spectogram
-    D = librosa.stft(in_wav, n_fft=8192, hop_length=512)
+    D = librosa.stft(in_wav, n_fft=4096, hop_length=1024, center=False)
     
     # Extract log magnitude
     log_mag = np.log1p(np.abs(D))
 
     # Convert to torch tensors
     out_tensor = torch.as_tensor(log_mag)
-    out_tensor.contiguous()
+    out_tensor = out_tensor.contiguous()
     
     # Reshape tensors to pass to neural net
-    out_tensor = out_tensor.view(-1, D.shape[0], D.shape[1])
+    out_tensor = out_tensor.view(-1, D.shape[0], 1, D.shape[1])
         
     return out_tensor
 
@@ -252,9 +254,10 @@ def phase_reconstruct(input_mag):
         # Compute spectrogram
         spectrogram = input_mag * np.exp(1j*phase)
         # Inverse stft to get signal from mag info and imperfect phase info
-        temp_signal = librosa.istft(spectrogram, hop_length=512)
+        temp_signal = librosa.istft(spectrogram, hop_length=1024, center=False)
         # Recover some meaningful phase info
-        phase = np.angle(librosa.stft(temp_signal, hop_length=512, n_fft=8192))
+        phase = np.angle(librosa.stft(temp_signal, hop_length=1024, 
+                                      n_fft=4096, center=False))
 
         if i % 25 == 0:
             print(str(round(i*.2, 2)) + "% complete")
@@ -269,13 +272,13 @@ def gram_matrix(input_data):
         b = number of feature maps
         c*d = number of features in a feature map
 
-        Note: This specification is specific to 1d convolution
+        Note: This specification is specific to 2d convolution
     
     """
-    _, b, cd = input_data.size() # Only passing 3dim tensors
-    features = input_data.view(b, cd) 
+    a, b, c, d = input_data.size()
+    features = input_data.view(b, a * c * d) 
     G = torch.mm(features, features.t())
-    return G.div(b * cd) 
+    return G.div(a * b * c * d) 
 
 
 def get_model_and_losses(cnn, content_tensor, style_tensor, content_weight, 
@@ -289,8 +292,8 @@ def get_model_and_losses(cnn, content_tensor, style_tensor, content_weight,
     # TODO: Add layers as the convolutional network gets more complicated
 
     # Layers of the convolution network to asses content and style loss at
-    content_layers = ["conv_1"]
-    style_layers = ["conv_1"]
+    content_layers = ["conv_2"]
+    style_layers = ["conv_1", "conv_2"]
 
     # New network to merge convolution network, content loss network, and
     # style loss network together to calculate content and style losses at 
@@ -299,7 +302,7 @@ def get_model_and_losses(cnn, content_tensor, style_tensor, content_weight,
 
     layer_level = 1
     for layer in cnn.children():
-        if isinstance(layer, nn.Conv1d):
+        if isinstance(layer, nn.Conv2d):
             # Add CNN convolution layer to new model
             name = "conv_" + str(layer_level)
             model.add_module(name, layer)
@@ -319,11 +322,17 @@ def get_model_and_losses(cnn, content_tensor, style_tensor, content_weight,
                 model.add_module("style_loss" + str(layer_level), style_loss)
                 style_losses.append(style_loss)
 
-            # TODO: Add code for ReLUs and MaxPools if they are added 
-            #       to the cnn definition
-            
-            # TODO: Only one layer at the moment so this is useless
-            layer_level += 1
+        elif isinstance(layer, nn.ReLU):
+            # Add relu layer to new model
+            name = "relu_" + str(layer_level)
+            model.add_module(name, layer)
+
+        elif isinstance(layer, nn.MaxPool2d):
+            # Add maxpool layer to new model
+            name = "maxp_" + str(layer_level)
+            model.add_module(name, layer)
+
+            layer_level += 1        
 
     return model, content_losses, style_losses
 
@@ -334,29 +343,39 @@ def get_optimizer(content_tensor):
     optimizer = optim.LBFGS([content_param.requires_grad_()])
     return content_param, optimizer
 
-# TODO: Figure out why run_transfer takes 10 to 20 more steps than specified...
+
 def run_transfer(cnn, content_tensor, style_tensor, device, content_weight=1, 
                  style_weight=10, num_steps=2000):
-    """ TODO: If implementing style and content weighting at the command line 
-              later, pass them to this function as well.
+    """ Notes: Optimizer takes 20 steps before returning control to 
+               the while loop.
     """
     print("Building model...")
 
-    model, content_losses, style_losses = get_model_and_losses(cnn, content_tensor, style_tensor, content_weight, style_weight, device)
+    model, content_losses, style_losses = get_model_and_losses(cnn, content_tensor, style_tensor, 
+                                                               content_weight, style_weight, device)
     
     content_param, optimizer = get_optimizer(content_tensor.contiguous())
 
     print("Optimizing...")
 
     run = [0]
-    while run[0] <= num_steps:
+    while run[0] < num_steps:
 
         # TODO: Consider impact of input clamping
         def closure():
+            content_param.data.clamp_(0, 1)
             optimizer.zero_grad()
+
+            time.sleep(0.5) # TODO: Delete
+
             model(content_param)
 
+            time.sleep(0.5) # TODO: Delete
+
             content_score = sum([cl.backward() for cl in content_losses])
+
+            time.sleep(0.5) # TODO: Delete
+
             style_score = sum([sl.backward() for sl in style_losses])
 
             loss = style_score + content_score
@@ -369,10 +388,14 @@ def run_transfer(cnn, content_tensor, style_tensor, device, content_weight=1,
                     style_score.item(), content_score.item()))
                 print()
 
+            #Idle CPU a bit so my fans aren't super loud tonight
+            time.sleep(1)
+
             return loss
 
         optimizer.step(closure)
 
+    content_param.data.clamp_(0, 1)
     return content_param.data
 
 
@@ -412,18 +435,18 @@ def main():
     # Run the transfer on left signals
     print("Running timbre transfer on left channel...")
     output_l = run_transfer(cnn, c_stft_l_tensor, s_stft_l_tensor, device, 
-                            content_weight=1, style_weight=50, num_steps=1750)
+                            content_weight=1, style_weight=25, num_steps=100)
     
 
     # Run the transfer on right signals
     print("Running timbre transfer on right channel...")
     output_r = run_transfer(cnn, c_stft_r_tensor, s_stft_r_tensor, device, 
-                            content_weight=1, style_weight=50, num_steps=1750)
+                            content_weight=1, style_weight=25, num_steps=100)
     
     output_l = output_l.cpu()
     output_r = output_r.cpu()
-    output_l = output_l.squeeze(0)
-    output_r = output_r.squeeze(0)
+    output_l = output_l.squeeze()
+    output_r = output_r.squeeze()
 
     # Inverse log
     output_l = output_l.numpy()
@@ -444,26 +467,26 @@ def main():
     output_stft_r = output_mag_r * np.exp(1j*phase_r)
 
     # Plot the content, style, and output stfts for the left channel
-    plot_spectrogram(librosa.stft(content_wav_l, n_fft=8192, hop_length=512), 
+    plot_spectrogram(librosa.stft(content_wav_l, n_fft=4096, hop_length=1024), 
                      out_dir, "content_spectrogram-left.png")
 
-    plot_spectrogram(librosa.stft(style_wav_l, n_fft=8192, hop_length=512), 
+    plot_spectrogram(librosa.stft(style_wav_l, n_fft=4096, hop_length=1024), 
                      out_dir, "style_spectrogram-left.png")
 
     plot_spectrogram(output_stft_l, out_dir, "output_spectrogram-left.png")
 
     # Plot the content, style, and output stfts for the right channel
-    plot_spectrogram(librosa.stft(content_wav_r, n_fft=8192, hop_length=512), 
+    plot_spectrogram(librosa.stft(content_wav_r, n_fft=4096, hop_length=1024), 
                      out_dir, "content_spectrogram-right.png")
 
-    plot_spectrogram(librosa.stft(style_wav_r, n_fft=8192, hop_length=512), 
+    plot_spectrogram(librosa.stft(style_wav_r, n_fft=4096, hop_length=1024), 
                      out_dir, "style_spectrogram-right.png")
 
     plot_spectrogram(output_stft_r, out_dir, "output_spectrogram-right.png")
 
     # Convert stfts back to signals
-    out_signal_l = librosa.istft(output_stft_l, hop_length=512)
-    out_signal_r = librosa.istft(output_stft_r, hop_length=512)
+    out_signal_l = librosa.istft(output_stft_l, hop_length=1024)
+    out_signal_r = librosa.istft(output_stft_r, hop_length=1024)
 
     # Combine left and right channels
     out_wav = np.zeros((2, out_signal_l.shape[0]))
