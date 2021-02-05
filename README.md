@@ -12,14 +12,23 @@
 
  [PySoundFile](https://pysoundfile.readthedocs.io/)
 
- Tested with Python 3.8, NumPy 1.18.5, Torch 1.6.0, Librosa 0.8, Sounfile 0.9, on Windows 10
+ Tested with Python 3.8, NumPy 1.18.5, Torch 1.6.0, Librosa 0.8, Sounfile 0.9, on Windows 10.
+ I have not tested if the GPU acceleration works though...
 
 ## Installation 
- TODO
+ From the command line (Mac/Linux Terminal or Windows PowerShell).
+ 
+ ```
+ python -m pip install git+https://github.com/rviviano/neural-timbre-transfer.git@v0.2.1
+ ```
  
 ## Usage
  ```
- python neural_timbre_transfer --content <arg> --style <arg>  --out <arg> -h
+ timbre_transfer --c <arg> --s <arg> --o <arg>
+ ```
+ or
+ ```
+ python -m neural_timbre_transfer --c <arg> --s <arg> --o <arg>
  ```
 
 ### Options
