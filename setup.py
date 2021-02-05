@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 
 setup(name='neural_timbre_transfer',
-      version="0.0.1",
+      version="0.2.1",
       description='CNN Neural Style Transfer for Audio with Python and PyTorch',
       author='Raymond Viviano',
       author_email='rayviviano@gmail.com',
@@ -11,7 +11,7 @@ setup(name='neural_timbre_transfer',
       py_modules=['neural_timbre_transfer'],
       entry_points = { 
             'console_scripts': [ 
-                'ntt = neural_timbre_transfer:main'
+                'timbre_transfer = neural_timbre_transfer:main'
             ] 
         }, 
       license='LICENSE',
